@@ -1,0 +1,148 @@
+sources:
+  ephemerides:
+    - id: jpl_horizons
+      name: JPL Horizons On-Line Ephemeris System
+      organization: NASA Jet Propulsion Laboratory
+      type: ephemeris
+      status: UNVERIFIED # (Implementation exists but lacks live test execution environment in this session)
+      capabilities:
+        image: false
+        fits: false
+        catalog: true
+        photometry: false
+        spectroscopy: false
+        metadata: true
+        wcs: false
+      query:
+        object: true
+        coordinates: false
+        time: true
+        spatial: false
+      authentication: None
+      limits: "No strict limits for low volume, but batching is required for massive queries."
+      official_docs: "https://ssd.jpl.nasa.gov/horizons/manual.html"
+      citation: "Giorgini, J.D., et al. 1996, BAAS, 28, 1158"
+      notes: "Source for Solar System body ephemerides. Provides RA/Dec, geometry, rates. Does not provide images."
+      
+  image_archives:
+    - id: irsa_ztf
+      name: Zwicky Transient Facility (ZTF) Image Archive
+      organization: NASA/IPAC Infrared Science Archive (IRSA)
+      type: image_archive
+      status: UNVERIFIED # (Syntax is correct, URL/params match probe.py, but live API interaction couldn't be tested)
+      capabilities:
+        image: true
+        fits: true
+        catalog: true
+        photometry: true
+        spectroscopy: false
+        metadata: true
+        wcs: true
+      query:
+        object: false
+        coordinates: true
+        time: true
+        spatial: true
+      authentication: "None for public data (DR releases), but proprietary data requires login."
+      limits: "API throttling applies; cutout sizes bounded."
+      official_docs: "https://irsa.ipac.caltech.edu/docs/program_interface/ztf_api.html"
+      citation: "Masci, F. J., et al. 2019, PASP, 131, 018003"
+      notes: "Queries primarily by RA/Dec and time (POS/INTERSECT). Does not resolve small body names to ephemerides."
+
+    - id: mast_panstarrs
+      name: Pan-STARRS1 (PS1)
+      organization: Mikulski Archive for Space Telescopes (MAST)
+      type: image_archive
+      status: PLACEHOLDER
+      capabilities:
+        image: true
+        fits: true
+        catalog: true
+        photometry: true
+        spectroscopy: false
+        metadata: true
+        wcs: true
+      query:
+        object: true
+        coordinates: true
+        time: false
+        spatial: true
+      authentication: "None for public data."
+      limits: "API rate limits apply. Bulk downloads via astroquery.mast."
+      official_docs: "https://outerspace.stsci.edu/display/PANSTARRS/Pan-STARRS1+data+archive+home+page"
+      citation: "Chambers, K.C., et al. 2016, arXiv:1612.05560"
+      notes: "Static catalog/image archive (DR1/DR2)."
+
+  object_databases:
+    - id: simbad
+      name: SIMBAD Astronomical Database
+      organization: CDS, Strasbourg
+      type: object_database
+      status: PLACEHOLDER
+      capabilities:
+        image: false
+        fits: false
+        catalog: true
+        photometry: true
+        spectroscopy: true
+        metadata: true
+        wcs: false
+      query:
+        object: true
+        coordinates: true
+        time: false
+        spatial: true
+      authentication: "None"
+      limits: "6 queries per second, max 10,000 objects per query."
+      official_docs: "http://simbad.cds.sbg.ac.fr/simbad/"
+      citation: "Wenger, M., et al. 2000, A&AS, 143, 9"
+      notes: "Primarily for objects outside the Solar System (stars, galaxies, etc.)."
+
+    - id: jpl_sbdb
+      name: JPL Small-Body Database
+      organization: NASA JPL
+      type: object_database
+      status: DOCUMENTED BUT UNTESTED
+      capabilities:
+        image: false
+        fits: false
+        catalog: true
+        photometry: false
+        spectroscopy: false
+        metadata: true
+        wcs: false
+      query:
+        object: true
+        coordinates: false
+        time: false
+        spatial: false
+      authentication: "None"
+      limits: "API rate limits apply."
+      official_docs: "https://ssd-api.jpl.nasa.gov/doc/sbdb.html"
+      citation: "JPL Solar System Dynamics"
+      notes: "Provides orbital elements and physical parameters for asteroids and comets."
+
+  survey_catalogs:
+    - id: gaia_dr3
+      name: Gaia Data Release 3
+      organization: ESA
+      type: survey_catalog
+      status: DOCUMENTED BUT UNTESTED
+      capabilities:
+        image: false
+        fits: false
+        catalog: true
+        photometry: true
+        spectroscopy: true
+        metadata: true
+        wcs: true
+      query:
+        object: true
+        coordinates: true
+        time: true
+        spatial: true
+      authentication: "None"
+      limits: "Heavy queries require asynchronous ADQL jobs."
+      official_docs: "https://gea.esac.esa.int/archive/documentation/GDR3/"
+      citation: "Gaia Collaboration et al. 2022, A&A, 674, A1"
+      notes: "Provides some Solar System Object (SSO) epoch astrometry."
