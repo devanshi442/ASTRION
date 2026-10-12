@@ -7,7 +7,6 @@ STRICT CONSTRAINTS:
 - Requires explicit user approval before execution.
 - Read-only probe; does not write to data/ directory.
 """
-import sys
 import requests
 from astropy.table import Table
 
