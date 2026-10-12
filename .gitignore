@@ -1,0 +1,43 @@
+﻿# Python environments
+envs/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Astronomical datasets and generated outputs
+data/
+reports/
+*.fits
+*.fit
+*.fts
+
+# Secrets
+.env
+.env.*
+!.env.example
+*credentials*
+*secret*
+*token*
+
+# Editors and temporary files
+.vscode/
+.idea/
+*.log
+*.tmp
+
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+_recovered_code/
+src_snapshot_*/
+battery-report.html
+*.before_retry_fix
+
+/rcingestionztf.py*
+/t campaign log*
+/tance Win32_Process*
+
+__pycache__/
+*.py[cod]
