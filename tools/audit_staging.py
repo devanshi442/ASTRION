@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import glob
 import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
@@ -37,7 +36,7 @@ def run_audit(staging_dir_path=None):
         lines.append(msg)
         print(msg)
 
-    log(f"# Staging Dataset Audit Report")
+    log("# Staging Dataset Audit Report")
     log(f"Generated at: {datetime.now(timezone.utc).isoformat()} (Local: {datetime.now().isoformat()})")
     log(f"Target Staging Directory: `{staging_dir}`\n")
 
@@ -196,7 +195,7 @@ def run_audit(staging_dir_path=None):
     for check_dir, label in [(staging_dir, "Staging"), (cache_dir, "Cache (ztf_science)")]:
         log(f"### Inspecting {label}: `{check_dir}`")
         if not check_dir.exists():
-            log(f"- Directory does not exist!")
+            log("- Directory does not exist!")
             continue
         all_files = list(check_dir.rglob("*"))
         zero_len = [f for f in all_files if f.is_file() and f.stat().st_size == 0]
@@ -292,7 +291,7 @@ def run_audit(staging_dir_path=None):
         b_path = staging_dir / b_name
         log(f"\n### Comparing against `{b_name}`:")
         if not b_path.exists():
-            log(f"- File does not exist.")
+            log("- File does not exist.")
             continue
         b_stat = b_path.stat()
         b_mtime = datetime.fromtimestamp(b_stat.st_mtime).isoformat()

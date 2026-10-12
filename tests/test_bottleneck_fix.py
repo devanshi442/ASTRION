@@ -32,7 +32,7 @@ class TestBottleneckFix(unittest.TestCase):
         self.mock_obj_exact.ephemerides.return_value = [{"RA": "150.1", "DEC": "20.1", "datetime_jd": "2458649.5"}]
 
         def horizons_side_effect(**kwargs):
-            if 'epochs' in kwargs and type(kwargs['epochs']) == list and len(kwargs['epochs']) == 1:
+            if 'epochs' in kwargs and isinstance(kwargs['epochs'], list) and len(kwargs['epochs']) == 1:
                 return self.mock_obj_exact
             return self.mock_obj_coarse
 
