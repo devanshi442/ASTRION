@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import math
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -276,6 +277,110 @@ def compute_maglim_p90(cache_dir: Path) -> float:
         pass
     return 21.33
 
+COMET_TARGETS = [
+    {
+        "name": "29P/Schwassmann-Wachmann 1",
+        "aliases": ["29P", "29P/Schwassmann-Wachmann", "29P/Schwassmann-Wachmann 1"],
+        "id": "90000396",
+        "id_type": "smallbody",
+        "orbit_solution": "JPL#K192/82 (Epoch 2022-Oct-25.0)",
+        "split": "comets",
+        "epochs": {"start": "2022-09-01", "stop": "2022-12-31", "step": "1d"},
+        "is_comet": True
+    },
+    {
+        "name": "C/2022 E3 (ZTF)",
+        "aliases": ["C/2022 E3", "C/2022 E3 (ZTF)", "C/2022_E3"],
+        "id": "90004754",
+        "id_type": "smallbody",
+        "orbit_solution": "JPL#82 (Epoch 2022-Oct-21.0)",
+        "split": "comets",
+        "epochs": {"start": "2022-03-02", "stop": "2022-08-31", "step": "1d"},
+        "is_comet": True
+    }
+]
+
+def compute_comet_flags(
+    c_data: np.ndarray,
+    saturate_val: float,
+    segm: Any,
+    cutout: Any,
+    target_sky: SkyCoord,
+    pred_uncertainty: Optional[float]
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    Compute comet quality flags per Step 1 requirement:
+    - SATURATED: peak >= SATURATE or >= 1% of crop pixels >= 0.9 * SATURATE
+    - EXTENDED_BEYOND_CROP: segment touches crop edge or equivalent diameter >= 64 px
+    - COMPACT: neither SATURATED nor EXTENDED_BEYOND_CROP
+    - EPHEMERIS_UNCERTAIN: 3-sigma > 10 arcsec
+    """
+    flags = []
+    peak_val = float(np.max(c_data))
+    sat_thresh = 0.9 * saturate_val
+    sat_pixel_count = int(np.count_nonzero(c_data >= sat_thresh))
+    total_pixels = c_data.size
+    sat_fraction = sat_pixel_count / float(total_pixels)
+    is_saturated = bool((peak_val >= saturate_val) or (sat_fraction >= 0.01))
+    if is_saturated:
+        flags.append("SATURATED")
+
+    is_extended = False
+    source_extent_px = 0.0
+    touches_edge = False
+
+    if segm is not None:
+        try:
+            cat = SourceCatalog(c_data, segm, wcs=cutout.wcs)
+            tbl = cat.to_table()
+            if len(tbl) > 0:
+                x_col = 'x_centroid' if 'x_centroid' in tbl.colnames else 'xcentroid'
+                y_col = 'y_centroid' if 'y_centroid' in tbl.colnames else 'ycentroid'
+                seg_sc = cutout.wcs.pixel_to_world_values(tbl[x_col], tbl[y_col])
+                seg_sky = SkyCoord(ra=seg_sc[0]*u.deg, dec=seg_sc[1]*u.deg, frame='icrs')
+                seps = target_sky.separation(seg_sky).arcsec
+                idx = int(np.argmin(seps))
+                nearest_label = int(tbl['label'][idx])
+
+                area_val = tbl['area'][idx] if 'area' in tbl.colnames else tbl['npixels'][idx]
+                area = float(getattr(area_val, 'value', area_val))
+                source_extent_px = 2.0 * math.sqrt(area / math.pi)
+
+                segm_arr = segm.data
+                border_labels = set(np.unique(segm_arr[0, :])).union(
+                    np.unique(segm_arr[-1, :]),
+                    np.unique(segm_arr[:, 0]),
+                    np.unique(segm_arr[:, -1])
+                )
+                border_labels = {int(x) for x in border_labels}
+                if nearest_label in border_labels:
+                    touches_edge = True
+
+                if touches_edge or source_extent_px >= 64.0:
+                    is_extended = True
+        except Exception:
+            pass
+
+    if is_extended:
+        flags.append("EXTENDED_BEYOND_CROP")
+
+    if not is_saturated and not is_extended:
+        flags.append("COMPACT")
+
+    if pred_uncertainty is not None and pred_uncertainty > 10.0:
+        flags.append("EPHEMERIS_UNCERTAIN")
+
+    info = {
+        "peak_val": peak_val,
+        "sat_fraction": sat_fraction,
+        "is_saturated": is_saturated,
+        "is_extended": is_extended,
+        "source_extent_px": source_extent_px,
+        "touches_edge": touches_edge,
+        "is_compact": ("COMPACT" in flags)
+    }
+    return flags, info
+
 def generate_dataset(
     targets=None,
     dataset_dir=None,
@@ -315,14 +420,20 @@ def generate_dataset(
             {"name": "99942 Apophis", "id": "99942", "id_type": "smallbody", "split": "train"},
             {"name": "101955 Bennu", "id": "101955", "id_type": "smallbody", "split": "val", "epochs": {"start": "2019-04-19", "stop": "2023-12-31", "step": "1d"}},
         ]
-        if include_comets:
-            targets.append({"name": "C/2020 F3", "id": "C/2020 F3", "id_type": "designation", "split": "test", "epochs": {"start": "2020-07-01", "stop": "2020-09-01", "step": "1d"}})
+        # Comets only run with --include_comets AND an explicit --objects list (target_names)
+        if include_comets and target_names is not None:
+            targets.extend(COMET_TARGETS)
 
     if target_names is not None:
-        targets = [t for t in targets if t["name"] in target_names]
+        filtered = []
+        for t in targets:
+            names = [t["name"]] + t.get("aliases", [])
+            if any(n in target_names for n in names):
+                filtered.append(t)
+        targets = filtered
 
     if not include_comets and targets_was_none:
-        targets = [t for t in targets if not (t.get("id_type") == "designation" or "comet" in t.get("name", "").lower() or t.get("name", "").startswith("C/"))]
+        targets = [t for t in targets if not (t.get("is_comet", False) or t.get("id_type") == "designation" or "comet" in t.get("name", "").lower() or t.get("name", "").startswith(("C/", "29P")))]
 
     if v_mag_threshold is None:
         v_mag_threshold = compute_maglim_p90(REPO_ROOT / "data" / "cache" / "ztf_science")
@@ -382,15 +493,29 @@ def generate_dataset(
             _log("===========================================")
             _log(f"Processing {t['name']} for split: {t['split']}")
 
-            # Check quota: Exclude UNVERIFIED_PENDING_RELOCALIZATION and NON_INFORMATIVE
-            valid_downloaded = [
-                m for m in manifest
-                if m["object"] == t["name"] and m.get("label") not in ("UNVERIFIED_PENDING_RELOCALIZATION", "NON_INFORMATIVE")
-            ]
+            is_comet = bool(t.get("is_comet", False) or "comet" in t.get("name", "").lower() or t.get("name", "").startswith(("29P", "C/2022")))
+
+            # Check quota: For comets, only COMPACT rows count towards quota.
+            if is_comet:
+                valid_downloaded = [
+                    m for m in manifest
+                    if m["object"] == t["name"]
+                    and "COMPACT" in m.get("flags", [])
+                    and "SATURATED" not in m.get("flags", [])
+                    and "EXTENDED_BEYOND_CROP" not in m.get("flags", [])
+                ]
+                target_quota = min(images_per_object, 20)
+            else:
+                valid_downloaded = [
+                    m for m in manifest
+                    if m["object"] == t["name"] and m.get("label") not in ("UNVERIFIED_PENDING_RELOCALIZATION", "NON_INFORMATIVE")
+                ]
+                target_quota = images_per_object
+
             downloaded_for_obj = len(valid_downloaded)
 
-            if downloaded_for_obj >= images_per_object:
-                _log(f"Quota fulfilled ({downloaded_for_obj}/{images_per_object}). Skipping.")
+            if downloaded_for_obj >= target_quota:
+                _log(f"Quota fulfilled ({downloaded_for_obj}/{target_quota} for {t['name']}). Skipping.")
                 continue
 
             # Check budgets before starting target
@@ -412,13 +537,17 @@ def generate_dataset(
                     days_to_check = []
                     for row in eph_coarse:
                         row_has_v = ("V" in row.colnames) if hasattr(row, 'colnames') else ("V" in row)
+                        row_has_t = ("Tmag" in row.colnames) if hasattr(row, 'colnames') else ("Tmag" in row)
+                        row_has_n = ("Nmag" in row.colnames) if hasattr(row, 'colnames') else ("Nmag" in row)
                         row_has_unc = ("RA_3sigma" in row.colnames) if hasattr(row, 'colnames') else ("RA_3sigma" in row)
                         days_to_check.append({
                             "ra": float(row["RA"]),
                             "dec": float(row["DEC"]),
                             "jd": float(row["datetime_jd"]),
-                            "v_mag": float(row["V"]) if (row_has_v and row["V"] is not None) else None,
-                            "target_uncertainty": float(row["RA_3sigma"]) if (row_has_unc and row["RA_3sigma"] is not None) else None
+                            "v_mag": float(row["V"]) if (row_has_v and row["V"] is not None and not np.isnan(row["V"])) else None,
+                            "t_mag": float(row["Tmag"]) if (row_has_t and row["Tmag"] is not None and not np.isnan(row["Tmag"])) else None,
+                            "n_mag": float(row["Nmag"]) if (row_has_n and row["Nmag"] is not None and not np.isnan(row["Nmag"])) else None,
+                            "target_uncertainty": float(row["RA_3sigma"]) if (row_has_unc and row["RA_3sigma"] is not None and not np.isnan(row["RA_3sigma"])) else None
                         })
                     cache_mgr.put(coarse_eph_key, days_to_check)
                     cache_mgr.save()
@@ -428,31 +557,35 @@ def generate_dataset(
                     _log(f"Coarse Horizons query failed for {t['name']}: {e}")
                     continue
 
-            # Prioritize candidate observations by predicted apparent V magnitude (lower magnitudes first)
-            shuffled_days = sorted(
-                days_to_check,
-                key=lambda d: (d.get("v_mag") is None, d.get("v_mag") if d.get("v_mag") is not None else float("inf"))
-            )
+            # Scanning order: fixed-seed random order across window for comets, V-magnitude sort for asteroids
+            if is_comet:
+                shuffled_days = list(days_to_check)
+                random.Random(42).shuffle(shuffled_days)
+            else:
+                shuffled_days = sorted(
+                    days_to_check,
+                    key=lambda d: (d.get("v_mag") is None, d.get("v_mag") if d.get("v_mag") is not None else float("inf"))
+                )
 
             _log(f"  [DISCOVERY] Lazy scanning {len(shuffled_days)} candidate days (max_workers={min(max_workers, 2)})...")
 
             # Iterate through candidate days lazily
             for day in shuffled_days:
-                if downloaded_for_obj >= images_per_object:
+                if downloaded_for_obj >= target_quota:
                     break
                 if max_new_samples is not None and new_samples_added >= max_new_samples:
                     break
 
-                # Prefilter: skip candidate days with Horizons predicted V fainter than 90th percentile MAGLIM
-                day_v = day.get("v_mag")
-                if day_v is not None and v_mag_threshold is not None and day_v > v_mag_threshold:
-                    # Candidate days are sorted ascending by V magnitude, so all remaining days are also fainter
-                    day_idx = shuffled_days.index(day)
-                    rem_days = len(shuffled_days) - day_idx
-                    days_skipped_prefilter += rem_days
-                    days_skipped_by_target[t["name"]] = days_skipped_by_target.get(t["name"], 0) + rem_days
-                    _log(f"  Target {t['name']}: {rem_days} candidate days fainter than threshold ({v_mag_threshold:.2f} mag). Moving to next target.")
-                    break
+                # Prefilter: skip candidate days for asteroids with Horizons predicted V fainter than 90th percentile MAGLIM (no prefilter for comets)
+                if not is_comet:
+                    day_v = day.get("v_mag")
+                    if day_v is not None and v_mag_threshold is not None and day_v > v_mag_threshold:
+                        day_idx = shuffled_days.index(day)
+                        rem_days = len(shuffled_days) - day_idx
+                        days_skipped_prefilter += rem_days
+                        days_skipped_by_target[t["name"]] = days_skipped_by_target.get(t["name"], 0) + rem_days
+                        _log(f"  Target {t['name']}: {rem_days} candidate days fainter than threshold ({v_mag_threshold:.2f} mag). Moving to next target.")
+                        break
 
                 budget.check_budget()
                 coarse_jd = day["jd"]
@@ -496,26 +629,38 @@ def generate_dataset(
                 for obsjd in distinct_obsjds:
                     budget.check_budget()
 
-                    # 1. Exact Horizons query
-                    exact_horizons_key = make_exact_horizons_key(t['name'], obsjd)
+                    # 1. Exact Horizons query (mid-exposure for comets)
+                    mid_exp_jd = obsjd + (30.0 / 2.0) / 86400.0
+                    query_epoch = mid_exp_jd if is_comet else obsjd
+                    exact_horizons_key = make_exact_horizons_key(t['name'], query_epoch)
                     eph_exact = cache_mgr.get(exact_horizons_key)
                     if eph_exact is None:
-                        _log(f"  [OBS] Querying exact Horizons for JD {obsjd}...")
+                        _log(f"  [OBS] Querying exact Horizons for epoch {query_epoch:.5f}...")
                         budget.record_attempt("horizons_exact")
                         try:
-                            obj_exact = Horizons(id=t['id'], id_type=t['id_type'], location="I41", epochs=[obsjd])
+                            obj_exact = Horizons(id=t['id'], id_type=t['id_type'], location="I41", epochs=[query_epoch])
                             eph_exact_tbl = obj_exact.ephemerides()
                             if not eph_exact_tbl:
                                 continue
                             row_exact = eph_exact_tbl[0]
                             row_has_v = ("V" in row_exact.colnames) if hasattr(row_exact, 'colnames') else ("V" in row_exact)
+                            row_has_t = ("Tmag" in row_exact.colnames) if hasattr(row_exact, 'colnames') else ("Tmag" in row_exact)
+                            row_has_n = ("Nmag" in row_exact.colnames) if hasattr(row_exact, 'colnames') else ("Nmag" in row_exact)
                             row_has_unc = ("RA_3sigma" in row_exact.colnames) if hasattr(row_exact, 'colnames') else ("RA_3sigma" in row_exact)
+                            row_has_dec_unc = ("DEC_3sigma" in row_exact.colnames) if hasattr(row_exact, 'colnames') else ("DEC_3sigma" in row_exact)
+
+                            ra_unc = float(row_exact["RA_3sigma"]) if (row_has_unc and row_exact["RA_3sigma"] is not None and not np.isnan(row_exact["RA_3sigma"])) else None
+                            dec_unc = float(row_exact["DEC_3sigma"]) if (row_has_dec_unc and row_exact["DEC_3sigma"] is not None and not np.isnan(row_exact["DEC_3sigma"])) else None
+                            max_unc = max([u for u in (ra_unc, dec_unc) if u is not None], default=None)
+
                             eph_exact = {
                                 "ra": float(row_exact["RA"]),
                                 "dec": float(row_exact["DEC"]),
                                 "datetime_jd": float(row_exact["datetime_jd"]),
-                                "v_mag": float(row_exact["V"]) if (row_has_v and row_exact["V"] is not None) else None,
-                                "target_uncertainty": float(row_exact["RA_3sigma"]) if (row_has_unc and row_exact["RA_3sigma"] is not None) else None
+                                "v_mag": float(row_exact["V"]) if (row_has_v and row_exact["V"] is not None and not np.isnan(row_exact["V"])) else None,
+                                "t_mag": float(row_exact["Tmag"]) if (row_has_t and row_exact["Tmag"] is not None and not np.isnan(row_exact["Tmag"])) else None,
+                                "n_mag": float(row_exact["Nmag"]) if (row_has_n and row_exact["Nmag"] is not None and not np.isnan(row_exact["Nmag"])) else None,
+                                "target_uncertainty": max_unc if max_unc is not None else ra_unc
                             }
                             cache_mgr.put(exact_horizons_key, eph_exact)
                             cache_mgr.save()
@@ -523,8 +668,8 @@ def generate_dataset(
                         except (BudgetExceededError, CircuitBreakerError):
                             raise
                         except Exception as e:
-                            _log(f"  Exact Horizons query failed for JD {obsjd}: {e}")
-                            failure_ledger.record_failure(f"horizons_{t['name']}_{obsjd:.5f}", str(e))
+                            _log(f"  Exact Horizons query failed for epoch {query_epoch}: {e}")
+                            failure_ledger.record_failure(f"horizons_{t['name']}_{query_epoch:.5f}", str(e))
                             continue
 
                     pred_ra = eph_exact["ra"]
@@ -636,11 +781,25 @@ def generate_dataset(
                                 # True SNR subtracting sky pedestal
                                 seg_snr = float(max(0.0, (peak_val - median) / std)) if std > 0 else 0.0
 
-                            # Scientific Labeling Logic 2.0
+                            # Scientific Labeling Logic 2.0 & Comet Quality Flags
                             label = "HUMAN_VERIFICATION_REQUIRED"
                             negative_reason = "AMBIGUOUS_SIGNAL"
+                            comet_flags: List[str] = []
+                            comet_flag_info: Dict[str, Any] = {}
 
-                            if t["name"] == "C/2020 F3" or "comet" in t["name"].lower():
+                            if is_comet:
+                                label = "UNVERIFIED_PENDING_RELOCALIZATION"
+                                negative_reason = "COMET_DIFFUSE_MORPHOLOGY"
+                                s_val = float(hdu.header.get("SATURATE", 65535.0))
+                                comet_flags, comet_flag_info = compute_comet_flags(
+                                    c_data=c_data,
+                                    saturate_val=s_val,
+                                    segm=segm,
+                                    cutout=cutout,
+                                    target_sky=target_sky,
+                                    pred_uncertainty=pred_uncertainty
+                                )
+                            elif t["name"] == "C/2020 F3" or "comet" in t["name"].lower():
                                 label = "UNVERIFIED_PENDING_RELOCALIZATION"
                                 negative_reason = "COMET_DIFFUSE_MORPHOLOGY"
                             elif seg_nearest <= 3.0 and seg_snr >= 10.0:
@@ -657,7 +816,7 @@ def generate_dataset(
                                     label = "HUMAN_VERIFICATION_REQUIRED"
                                     negative_reason = "NO_DETECTION_BRIGHT_PREDICTION"
 
-                            _log(f"    --> Cutout analysis: {label} (Sep: {seg_nearest:.2f}\", SNR: {seg_snr:.1f})")
+                            _log(f"    --> Cutout analysis: {label} (Sep: {seg_nearest:.2f}\", SNR: {seg_snr:.1f}, Flags: {comet_flags})")
 
                             if label == "NON_INFORMATIVE":
                                 non_info_rec = {
@@ -734,10 +893,13 @@ def generate_dataset(
                             origin_orig = getattr(cutout, "origin_original", (0.0, 0.0))
 
                             # Append manifest record
-                            manifest.append({
+                            parent_obs_id = f"ztf_{obs.get('filefracday', 'unknown')}_{obs.get('field', 0):06d}_c{obs.get('ccdid', 0):02d}_q{obs.get('qid', 0)}"
+                            saturate_hdr = float(hdu.header.get("SATURATE", 65535.0))
+                            rec_entry = {
                                 "object": t["name"],
                                 "split": t["split"],
                                 "record_id": record_id,
+                                "parent_observation_id": parent_obs_id,
                                 "fits_path": str(crop_path.relative_to(dataset_dir)),
                                 "source_archive": "IRSA_ZTF",
                                 "obsjd": obsjd,
@@ -766,20 +928,42 @@ def generate_dataset(
                                 "horizons_v_mag": pred_v_mag,
                                 "horizons_position_uncertainty_arcsec": pred_uncertainty,
                                 "header_maglim": header_maglim,
+                                "header_saturate": saturate_hdr,
                                 "provenance": "Exact-time epoch matching. Local cache full FITS.",
                                 "pipeline_version": "2.0_hardened"
-                            })
+                            }
+
+                            if is_comet:
+                                rec_entry.update({
+                                    "flags": comet_flags,
+                                    "orbit_solution": t.get("orbit_solution"),
+                                    "horizons_id": t.get("id"),
+                                    "horizons_id_type": t.get("id_type"),
+                                    "Tmag": eph_exact.get("t_mag"),
+                                    "Nmag": eph_exact.get("n_mag"),
+                                    "source_extent_px": comet_flag_info.get("source_extent_px", 0.0),
+                                    "source_touches_edge": comet_flag_info.get("touches_edge", False),
+                                    "peak_pixel_value": comet_flag_info.get("peak_val", 0.0),
+                                    "saturated_pixel_fraction": comet_flag_info.get("sat_fraction", 0.0)
+                                })
+
+                            manifest.append(rec_entry)
 
                             # Commit manifest last
                             atomic_save_manifest(manifest, man_path)
                             seen_records.add((t["name"], record_id))
 
-                            if label not in ("UNVERIFIED_PENDING_RELOCALIZATION", "NON_INFORMATIVE"):
+                            # Quota counting: for comets, only COMPACT rows count towards quota
+                            if is_comet:
+                                if "COMPACT" in comet_flags and "SATURATED" not in comet_flags and "EXTENDED_BEYOND_CROP" not in comet_flags:
+                                    downloaded_for_obj += 1
+                                    _log(f"  [QUOTA] {t['name']} COMPACT sample {downloaded_for_obj}/{target_quota}")
+                            elif label not in ("UNVERIFIED_PENDING_RELOCALIZATION", "NON_INFORMATIVE"):
                                 downloaded_for_obj += 1
 
                             new_samples_added += 1
                             match_found = True
-                            _log(f"  [SAVED] Committed new sample {new_samples_added} ({record_id}, {label})")
+                            _log(f"  [SAVED] Committed new sample {new_samples_added} ({record_id}, {label}, flags={comet_flags if is_comet else 'N/A'})")
 
                             if max_new_samples is not None and new_samples_added >= max_new_samples:
                                 _log(f"Reached max_new_samples={max_new_samples} safe checkpoint. Pausing.")

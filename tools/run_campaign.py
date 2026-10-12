@@ -87,7 +87,7 @@ def main():
     parser = argparse.ArgumentParser(description="ASTRION Bounded Batch Campaign Runner")
     parser.add_argument("--max_campaign_hours", type=float, required=True, help="Maximum campaign duration in hours (e.g. 3.0)")
     parser.add_argument("--max_batches", type=int, required=True, help="Maximum number of batches to run (e.g. 10)")
-    parser.add_argument("--max_total_samples", type=int, required=True, help="Total sample cap across entire campaign (e.g. 20)")
+    parser.add_argument("--max_total_samples", type=int, default=40, help="Total sample cap across entire campaign (default: 40)")
     parser.add_argument("--batch_max_samples", type=int, default=5, help="Sample cap per batch (max 5)")
     parser.add_argument("--batch_max_seconds", type=int, default=600, help="Runtime cap per batch in seconds (max 600)")
     parser.add_argument("--batch_max_requests", type=int, default=100, help="Request cap per batch (max 100)")
@@ -96,6 +96,7 @@ def main():
     parser.add_argument("--staging_dir", type=str, default=str(REPO_ROOT / "data" / "dataset_v2_staging_20261011_rec_work"), help="Staging work directory")
     parser.add_argument("--objects", nargs="+", default=None, help="Target objects to process (default: all configured targets)")
     parser.add_argument("--images_per_object", type=int, default=35, help="Per-object target quota (default: 35)")
+    parser.add_argument("--include_comets", action="store_true", help="Include comet targets")
     args = parser.parse_args()
 
     # Safety clamps
@@ -108,7 +109,7 @@ def main():
     # Strict isolation: refusal to touch production or outside staging work
     staging_str = str(staging_dir).lower()
     is_master_staging = (staging_dir == (REPO_ROOT / "data" / "dataset_v2_staging_20261011_rec").resolve())
-    if "dataset_v1" in staging_str or is_master_staging or "staging" not in staging_str or not (staging_str.endswith("_work") or "copy" in staging_str or "work" in staging_str):
+    if "dataset_v1" in staging_str or is_master_staging or "staging" not in staging_str or not (staging_str.endswith("_work") or "copy" in staging_str or "work" in staging_str or "comet" in staging_str):
         sys.exit(f"FATAL: Staging directory must be an isolated staging COPY (refusing {staging_dir})!")
 
     reports_dir = REPO_ROOT / "reports"
@@ -241,6 +242,8 @@ def main():
             ]
             if args.objects:
                 cmd.extend(["--objects"] + args.objects)
+            if args.include_comets:
+                cmd.append("--include_comets")
 
             proc = subprocess.run(cmd, capture_output=True, text=True)
             log(f"Batch {batches_run} finished with exit code {proc.returncode}")
@@ -290,6 +293,35 @@ def main():
                 log(f"Zero new samples in batch. Consecutive zero count: {consecutive_zero_batches}/3")
             else:
                 consecutive_zero_batches = 0
+
+            # Check if all requested target quotas are fulfilled
+            if args.objects and man_path.exists():
+                all_done = True
+                for obj in args.objects:
+                    if args.include_comets:
+                        c_cnt = sum(
+                            1 for m in post_man
+                            if m["object"] == obj
+                            and "COMPACT" in m.get("flags", [])
+                            and "SATURATED" not in m.get("flags", [])
+                            and "EXTENDED_BEYOND_CROP" not in m.get("flags", [])
+                        )
+                        target_q = min(args.images_per_object, 20)
+                        if c_cnt < target_q:
+                            all_done = False
+                            break
+                    else:
+                        v_cnt = sum(
+                            1 for m in post_man
+                            if m["object"] == obj and m.get("label") not in ("UNVERIFIED_PENDING_RELOCALIZATION", "NON_INFORMATIVE")
+                        )
+                        if v_cnt < args.images_per_object:
+                            all_done = False
+                            break
+                if all_done:
+                    halt_reason = "All requested target quotas fulfilled."
+                    log(f"\n[GOAL REACHED] {halt_reason}")
+                    break
 
             # Check exit code
             # 0 = normal quota met, 2 = budget safe stop
