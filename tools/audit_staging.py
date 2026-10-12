@@ -16,7 +16,7 @@ def sha256_file(filepath):
     return h.hexdigest().upper()
 
 def run_audit(staging_dir_path=None):
-    repo_root = Path(r"E:\Downloads\ASTRION")
+    repo_root = Path(os.environ.get("ASTRION_ROOT", Path(__file__).resolve().parent.parent))
     if staging_dir_path:
         staging_dir = Path(staging_dir_path)
     elif len(sys.argv) > 1 and sys.argv[1]:

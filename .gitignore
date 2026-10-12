@@ -1,10 +1,17 @@
-﻿# Python environments
+# Python bytecode and environments
+__pycache__/
+*.py[cod]
+*$py.class
 envs/
 .venv/
 venv/
-__pycache__/
-*.py[cod]
+ENV/
+
+# Testing and linting caches
 .pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
 
 # Astronomical datasets and generated outputs
 data/
@@ -12,32 +19,37 @@ reports/
 *.fits
 *.fit
 *.fts
+*.tbl
 
-# Secrets
+# Secrets and local configurations
 .env
 .env.*
 !.env.example
 *credentials*
 *secret*
 *token*
+*.pem
+*.key
 
-# Editors and temporary files
-.vscode/
-.idea/
-*.log
-*.tmp
-
-**/__pycache__/
-*.py[cod]
-.pytest_cache/
+# Local scratch and diagnostic scripts
+scratch_*.py
+powershell.bat
+battery-report.html
 _recovered_code/
 src_snapshot_*/
-battery-report.html
 *.before_retry_fix
+*.bak
+*.tmp
+*.part
 
+# Accidental terminal-output artifacts and malformed names
 /rcingestionztf.py*
 /t campaign log*
 /tance Win32_Process*
+/tem.IO.File*
 
-__pycache__/
-*.py[cod]
+# IDE and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

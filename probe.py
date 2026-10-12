@@ -31,7 +31,7 @@ from astropy.table import Table
 from astropy.wcs import WCS
 
 # ---------------------------------------------------------------- configuration
-DATA_ROOT = Path(os.environ.get("ASTRO_DATA_ROOT", r"E:\astroagent\data"))
+DATA_ROOT = Path(os.environ.get("ASTRO_DATA_ROOT", Path(__file__).resolve().parent / "data"))
 DIRS = {n: DATA_ROOT / n for n in ("cache", "cutouts", "quarantine", "manifests", "figures")}
 
 # Documented in IRSA's ZTF API page (verified).

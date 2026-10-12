@@ -1,5 +1,10 @@
 numpy
+scipy
+pandas
 requests
 astropy
 astroquery
+photutils
 matplotlib
+PyYAML
+pytest

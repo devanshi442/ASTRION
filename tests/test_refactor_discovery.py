@@ -4,7 +4,9 @@ import json
 import tempfile
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-sys.path.append(r"E:\Downloads\ASTRION")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from src.dataset_generator import generate_dataset
 from src.ingestion.ztf import ZTFConnector
 from astropy.io import fits

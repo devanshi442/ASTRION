@@ -21,11 +21,12 @@ param (
     [int]$BatchRequests = 100,
     [int]$BatchWorkers = 2,
     [int]$CooldownSeconds = 300,
-    [string]$StagingDir = "E:\Downloads\ASTRION\data\dataset_v2_staging_20261011_rec_work"
+    [string]$StagingDir = "$PSScriptRoot\..\data\dataset_v2_staging_20261011_rec_work"
 )
 
-$PythonExe = "E:\Downloads\ASTRION\envs\probe\Scripts\python.exe"
-$ScriptPy = "E:\Downloads\ASTRION\tools\run_campaign.py"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$PythonExe = if (Test-Path "$RepoRoot\envs\probe\Scripts\python.exe") { "$RepoRoot\envs\probe\Scripts\python.exe" } else { "python" }
+$ScriptPy = "$PSScriptRoot\run_campaign.py"
 
 & $PythonExe $ScriptPy `
     --max_campaign_hours $MaxHours `

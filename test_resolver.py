@@ -2,8 +2,10 @@ import sys
 import json
 import os
 from pathlib import Path
-from src.resolver import EvidenceResolver
-from src.ingestion.registry import ConnectorRegistry
+REPO_ROOT = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def test_resolver():
     print("Testing Evidence Resolver with end-to-end live queries...")
@@ -86,7 +88,7 @@ def test_resolver():
 
         print("HTTP success.")
 
-        raw_dir = Path(r"E:\Downloads\ASTRION\data\raw\ztf")
+        raw_dir = REPO_ROOT / "data" / "raw" / "ztf"
         raw_dir.mkdir(parents=True, exist_ok=True)
         fits_path = raw_dir / f"{first_candidate['source_record_id']}_cutout.fits"
 
@@ -113,7 +115,7 @@ def test_resolver():
             print(f"Basic metadata: FILTER={hdu.header.get('FILTER')}, OBSJD={hdu.header.get('OBSJD')}")
 
         # Write JSON provenance
-        meta_dir = Path(r"E:\Downloads\ASTRION\data\metadata")
+        meta_dir = REPO_ROOT / "data" / "metadata"
         meta_dir.mkdir(parents=True, exist_ok=True)
         meta_path = meta_dir / f"{first_candidate['source_record_id']}_prov.json"
 

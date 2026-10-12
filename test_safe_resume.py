@@ -3,7 +3,9 @@ import shutil
 import json
 import time
 from pathlib import Path
-sys.path.append(r"E:\Downloads\ASTRION")
+REPO_ROOT = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from src.dataset_generator import generate_dataset
 import requests
@@ -19,8 +21,8 @@ def counting_get(*args, **kwargs):
 requests.get = counting_get
 
 def test_safe_resume():
-    prod_manifest = Path(r"E:\Downloads\ASTRION\data\dataset_v1\manifest.json")
-    test_dir = Path(r"E:\Downloads\ASTRION\data\test_resume")
+    prod_manifest = REPO_ROOT / "data" / "dataset_v1" / "manifest.json"
+    test_dir = REPO_ROOT / "data" / "test_resume"
     test_dir.mkdir(parents=True, exist_ok=True)
     test_manifest = test_dir / "manifest.json"
 
